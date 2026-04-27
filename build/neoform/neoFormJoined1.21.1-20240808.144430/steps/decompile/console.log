@@ -1,8 +1,0 @@
-JVM Args:          "-Xmx4g"
-Run Args:          "-log=error", "--decompile-inner", "--remove-bridge", "--decompile-generics", "--ascii-strings", "--remove-synthetic", "--include-classpath", "--variable-renaming=jad", "--ignore-invalid-bytecode", "--bytecode-source-mapping", "--dump-code-lines", "--indent-string=    ", "-cfg", "C:\Users\scott\Documents\GitHub\Fog Mod\Flat Fog 0.100\build\neoForm\neoFormJoined1.21.1-20240808.144430\steps\listLibraries\libraries.txt", "C:\Users\scott\Documents\GitHub\Fog Mod\Flat Fog 0.100\build\neoForm\neoFormJoined1.21.1-20240808.144430\steps\rename\output.jar", "C:\Users\scott\Documents\GitHub\Fog Mod\Flat Fog 0.100\build\neoForm\neoFormJoined1.21.1-20240808.144430\steps\decompile\output.jar"
-JVM:               C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\java.exe
-Classpath:         C:\Users\scott\.gradle\caches\modules-2\files-2.1\org.vineflower\vineflower\1.10.1\4f48c5947b21f9ebc743e7c80215ee839d3dc668\vineflower-1.10.1.jar
-Working Dir:       C:\Users\scott\Documents\GitHub\Fog Mod\Flat Fog 0.100\build\neoForm\neoFormJoined1.21.1-20240808.144430\steps\decompile
-Main Class:        org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler
-Program log file:  C:\Users\scott\Documents\GitHub\Fog Mod\Flat Fog 0.100\build\neoForm\neoFormJoined1.21.1-20240808.144430\steps\decompile\log.log
-Output file:       C:\Users\scott\Documents\GitHub\Fog Mod\Flat Fog 0.100\build\neoForm\neoFormJoined1.21.1-20240808.144430\steps\decompile\output.jar

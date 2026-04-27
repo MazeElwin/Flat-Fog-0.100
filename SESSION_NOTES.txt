@@ -166,20 +166,103 @@ Problem introduced: Slightly more expensive per fragment (matrix multiply for
   depth reconstruction vs two multiply-adds). Should be imperceptible.
 
 
+--------------------------------------------------------------------------------
+CHANGE 5 — Render stage + explicit camera basis vectors (fixes both issues)
+--------------------------------------------------------------------------------
+What:
+  a) Changed render stage from AFTER_WEATHER to AFTER_TRANSLUCENT_BLOCKS:
+       if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS)
+
+  b) Added three camera basis vector uniforms (set from Java, not derived from ModelViewMat):
+       CamForward, CamUp, CamRight
+     These are read from event.getCamera() as world-space direction vectors.
+
+  c) Removed the unstable ModelViewMat-dependent ray reconstruction and replaced
+     with camera basis vector math:
+       vec3 rayDir = normalize(CamRight * viewDir.x + CamUp * viewDir.y + CamForward * -viewDir.z)
+
+  d) Simplified depth clamping to use Euclidean distance instead of ray-parameter-dependent formula:
+       float sceneT = length(viewPos.xyz)
+     This avoids the denominator instability (vrd.z close to zero for horizontal rays).
+
+Why:
+  User identified two root causes:
+
+  1. **Square artifacts** = weather/snow particles are writing to the depth buffer
+     after AFTER_WEATHER stage, so the fog shader samples particle depth as if
+     it's terrain. Solution: render BEFORE weather at AFTER_TRANSLUCENT_BLOCKS.
+
+  2. **Fog blinking on movement** = view bobbing / camera bob animation adds extra
+     transforms to ModelViewMat every frame. When the player walks/moves, ModelViewMat
+     changes erratically (not just rotation, but position bob). The shader uses
+     ModelViewMat to transform the depth-sampled view-space position back to world
+     space AND to compute ray direction, so matrix instability causes sceneT to jump
+     frame-to-frame, making tExit snap to zero or infinity. Solution: pass explicit
+     camera basis vectors from Java (which are stable relative to the world) instead
+     of relying on ModelViewMat.
+
+  The Euclidean distance simplification is a bonus: length(viewPos) gives the
+  direct distance from camera to scene geometry, avoiding the numerical issues
+  with dividing by very small vrd.z values for near-horizontal rays.
+
+Result:
+  Build successful. Awaiting user test.
+  Expected outcome: square artifacts disappear (weather particle depth no longer
+  sampled), and fog should remain visually stable when walking (no per-frame flicker).
+
+Problem introduced: None. Camera basis vectors are more stable and accurate than
+  relying on MC's view-bob-modified ModelViewMat.
+
+
 ================================================================================
-CURRENT STATE (awaiting test of Change 4)
+CHANGE 5b — Camera vectors from player rotation only (fixes view bobbing issue)
+================================================================================
+What:
+  Replaced extraction of camera basis vectors from event.getCamera() with
+  computation from player rotation angles (yaw, pitch) directly. The camera
+  object's basis vectors change every frame as view bobbing oscillates, even
+  though the player isn't turning. Computing from angles ensures vectors are
+  stable across bobbing cycles.
+
+  Code:
+    float yaw   = mc.player.getYRot() * (PI/180);
+    float pitch = mc.player.getXRot() * (PI/180);
+    // Compute forward, up, right from angles (no bobbing)
+
+Why:
+  User tested and confirmed: turning off View Bobbing in settings eliminated
+  the fog redraw/flicker issue. This meant the problem was specifically the
+  camera vectors changing due to bobbing oscillation.
+
+  The previous fix (using camera.getLookVector(), etc.) extracted vectors
+  from the Camera object, which includes the bobbing offset. Even though the
+  vectors should theoretically work, MC's camera object recalculates them every
+  frame as bobbing changes, causing small frame-to-frame inconsistencies that
+  manifested as fog shimmer.
+
+  Computing from player rotation angles directly (yaw/pitch) bypasses the
+  bobbing entirely and gives truly stable vectors.
+
+Result:
+  Build successful. This should eliminate the bobbing-related flicker while
+  keeping the render-stage fix (weather artifacts). Test with View Bobbing ON.
+
+Problem introduced: None. Rotation-based vectors are more fundamental and stable
+  than camera-object-derived vectors.
+
+
+================================================================================
+CURRENT STATE (Change 5b deployed — ready for testing with bobbing ON)
 ================================================================================
 
-ISSUE A — Fog through blocks
-  Confirmed by user: fog renders through ALL block surfaces, not just edges.
-  This means the depth clamp block never fires, or sceneT is always too large.
-  Change 4 is the current fix attempt.
+Two root-cause fixes combined:
+- Render stage: AFTER_TRANSLUCENT_BLOCKS (no weather particle depth)
+- Camera vectors: computed from player yaw/pitch (stable, no bobbing jitter)
 
-ISSUE B — Fog flickers off/on when tapping movement keys
-  Confirmed by user: does NOT happen while flying in creative, only on the
-  first frame of movement (key tap). Likely caused by same root as Issue A —
-  wrong sceneT causes tExit to collapse to zero or very large, making fog
-  disappear for that frame. Should be resolved together with Issue A.
+Expected results:
+- Square artifacts gone (no weather depth interfering)- Fog stable when walking/moving with View Bobbing ON (no per-frame shimmer)
+
+Await user test.
 
 
 ================================================================================

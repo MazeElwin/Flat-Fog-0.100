@@ -3,11 +3,24 @@ plugins {
     id 'net.neoforged.gradle.userdev' version '7.0.168'
 }
 
-version = '0.1.0'
+// Read and increment build number
+def versionFile = file('version.txt')
+def buildNumber = 1
+if (versionFile.exists()) {
+    versionFile.eachLine { line ->
+        if (line.startsWith('build=')) {
+            buildNumber = line.replace('build=', '').toInteger() + 1
+        }
+    }
+}
+// Write back the incremented build number
+versionFile.text = "build=${buildNumber}\n"
+
+version = "0.1.0-build${buildNumber}"
 group = 'com.flatfog'
 
 base {
-    archivesName = 'flatfog-1.21.1'
+    archivesName = 'flatfog-1.21.1-build' + buildNumber
 }
 
 java {
