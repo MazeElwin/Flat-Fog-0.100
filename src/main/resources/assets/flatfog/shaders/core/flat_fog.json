@@ -1,0 +1,29 @@
+{
+    "blend": {
+        "func": "add",
+        "srcrgb": "srcalpha",
+        "dstrgb": "1-srcalpha"
+    },
+    "vertex": "flatfog:flat_fog",
+    "fragment": "flatfog:flat_fog",
+    "attributes": [
+        "Position"
+    ],
+    "samplers": [
+        { "name": "DepthSampler" }
+    ],
+    "uniforms": [
+        { "name": "ModelViewMat",    "type": "matrix4x4", "count": 16, "values": [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1] },
+        { "name": "ProjMat",         "type": "matrix4x4", "count": 16, "values": [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1] },
+        { "name": "InvProjMat",      "type": "matrix4x4", "count": 16, "values": [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1] },
+        { "name": "GameTime",        "type": "float",     "count": 1,  "values": [0.0] },
+        { "name": "CamWorldPos",     "type": "float",     "count": 3,  "values": [0.0, 64.0, 0.0] },
+        { "name": "FogTopY",         "type": "float",     "count": 1,  "values": [100.0] },
+        { "name": "FogBottomY",      "type": "float",     "count": 1,  "values": [-64.0] },
+        { "name": "FogDensity",      "type": "float",     "count": 1,  "values": [1.5] },
+        { "name": "HeightVariation", "type": "float",     "count": 1,  "values": [10.0] },
+        { "name": "HeightScale",     "type": "float",     "count": 1,  "values": [0.003] },
+        { "name": "FogColorRGB",     "type": "float",     "count": 3,  "values": [0.82, 0.88, 0.96] },
+        { "name": "FogAlpha",        "type": "float",     "count": 1,  "values": [0.92] }
+    ]
+}

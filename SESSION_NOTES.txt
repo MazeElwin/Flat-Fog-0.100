@@ -1,0 +1,253 @@
+FLAT FOG 0.100 — SESSION NOTES
+Date: 2026-04-27
+================================================================================
+
+ARCHITECTURE OVERVIEW
+--------------------------------------------------------------------------------
+Screen-space raymarching. A full-screen NDC quad (-1 to 1 in XY, Z=0) covers
+every pixel. The fragment shader reconstructs a world-space ray for each pixel,
+marches through a height band (FogBottomY to FogTopY+HeightVariation), evaluates
+an FBM noise function to get the local fog-top surface height, accumulates
+Beer-Lambert extinction, and writes a fog colour + alpha over the scene.
+
+No 3D geometry. No vanilla fog hooks. Depth buffer is read manually in the
+shader to stop the fog ray at geometry surfaces.
+
+Key files:
+  src/.../client/FlatFogRenderer.java      — renders the quad each frame
+  src/.../client/ClientSetup.java          — registers the shader on mod load
+  src/.../client/ClientFogSettings.java    — client-side mirror of server config
+  src/.../config/FlatFogConfig.java        — server config (synced to clients)
+  src/.../server/ServerEventHandler.java   — sends config packet on player join
+  src/.../network/FogSettingsPayload.java  — the network packet
+  assets/flatfog/shaders/core/flat_fog.vsh — pass-through vertex shader
+  assets/flatfog/shaders/core/flat_fog.fsh — raymarching fragment shader
+  assets/flatfog/shaders/core/flat_fog.json — shader definition + uniform list
+
+
+================================================================================
+CHANGES MADE THIS SESSION (in order)
+================================================================================
+
+--------------------------------------------------------------------------------
+CHANGE 1 — Added ProjMat to flat_fog.json
+--------------------------------------------------------------------------------
+What:
+  Added {"name":"ProjMat","type":"matrix4x4",...} to the uniforms array in
+  flat_fog.json. The FSH was already using ProjMat[3][2] and ProjMat[2][2]
+  for the depth-linearisation formula but it was not declared in the JSON,
+  so the shader had no slot to receive it.
+
+Why:
+  ShaderInstance only tracks uniforms that are declared in the .json file.
+  Any uniform used in GLSL but absent from the JSON has no backing slot and
+  will silently read as zero/identity at runtime.
+
+Result:
+  Build passed. Problems UNCHANGED — artifacts still visible, fog still
+  changes pattern on movement. This did not solve either issue because the
+  REAL problem was that the JSON declaration alone does not force MC to
+  push the correct matrix into the slot (see Change 3).
+
+Problem introduced: None new. Root cause not addressed.
+
+
+--------------------------------------------------------------------------------
+CHANGE 2 — texelFetch for depth + fixed step size
+--------------------------------------------------------------------------------
+What:
+  a) Depth sampling switched from:
+       texture(DepthSampler, gl_FragCoord.xy / vec2(textureSize(...))).r
+     to:
+       texelFetch(DepthSampler, ivec2(gl_FragCoord.xy), 0).r
+
+  b) Step count switched from adaptive:
+       STEPS = clamp(int(pathLen / 4.0), 4, 24)
+       stepSize = pathLen / float(STEPS)
+     to fixed step size:
+       stepSize = 2.0
+       STEPS = min(int(pathLen / stepSize) + 1, 48)
+
+  c) Density rolloff widened from HeightVariation*0.5 to HeightVariation*0.75
+
+Why texelFetch:
+  texture() on a depth buffer uses bilinear filtering. At a block edge, the
+  four surrounding texels include both block-face depth and sky depth. Their
+  bilinear average is a depth value that corresponds to no real surface,
+  producing an incorrect sceneT and causing fog to bleed or disappear
+  at that pixel. texelFetch bypasses filtering entirely.
+
+Why fixed step size:
+  With adaptive steps the step count is int(pathLen/4), which changes as an
+  integer as pathLen changes continuously each frame. Every time it ticks from
+  N to N+1, all sample positions in world space shift simultaneously, producing
+  a visible "pop". A fixed 2-block step size means sample positions only shift
+  by the small per-frame change in tEntry, which is much smoother.
+
+Result:
+  Build passed. Problems UNCHANGED — user reported no visible difference.
+  This means neither bilinear depth filtering nor the adaptive step count
+  was the primary driver of either symptom.
+
+Problem introduced:
+  Max 48 steps × 2 blocks = 96 block coverage. For tall fog bands
+  (FogBottomY=-64 to FogTopY=100 = 164 blocks) the integration is still
+  undersampled when looking straight down from above the fog.
+
+
+--------------------------------------------------------------------------------
+CHANGE 3 — Manually push ProjMat from Java each frame
+--------------------------------------------------------------------------------
+What:
+  In FlatFogRenderer.java, added explicit uniform set calls:
+    Matrix4f projMat    = new Matrix4f(event.getProjectionMatrix());
+    Matrix4f invProjMat = projMat.invert(new Matrix4f());
+    setUniform("ProjMat",    projMat);
+    setUniform("InvProjMat", invProjMat);
+
+Why:
+  MC's ShaderInstance auto-updates a fixed set of built-in uniforms (ModelViewMat,
+  GameTime, ScreenSize, etc.) during apply(). ProjMat is on that list for core
+  shaders, but for custom shaders loaded via RegisterShadersEvent it may not be
+  updated in all render paths. If ProjMat stays as the identity default from the
+  JSON then:
+    ProjMat[2][2] = 1.0,  ProjMat[3][2] = 0.0
+    viewZ = 0.0 / (-ndcZ - 1.0)  →  viewZ = 0.0
+    sceneT = 0.0 / vrd.z  →  sceneT = 0.0
+    tExit = min(tExit, 0.0) = 0.0
+  This makes tEntry >= tExit for every pixel that has geometry (rawDepth < 0.9999),
+  discarding all fog at those pixels — explaining the block-edge holes ("artifacts")
+  and the fog pattern changing as geometry pixels move in/out of view on movement.
+
+Result:
+  Build passed. PROBLEMS STILL PRESENT per user report.
+  Either ProjMat was already being set correctly (making this redundant) or
+  the formula / binding is still wrong after the explicit set.
+
+Problem introduced: None new. Root cause still not confirmed.
+
+
+--------------------------------------------------------------------------------
+CHANGE 4 — Switch depth reconstruction from ProjMat to InvProjMat
+--------------------------------------------------------------------------------
+What:
+  Replaced the ProjMat-based algebraic formula in the depth clamping block:
+    float ndcZ  = rawDepth * 2.0 - 1.0;
+    float viewZ = ProjMat[3][2] / (-ndcZ - ProjMat[2][2]);
+  with a full NDC-to-view-space reconstruction using InvProjMat:
+    vec4  ndcPos     = vec4(vTexCoord * 2.0 - 1.0, rawDepth * 2.0 - 1.0, 1.0);
+    vec4  viewPos    = InvProjMat * ndcPos;
+    float sceneViewZ = viewPos.z / viewPos.w;
+  Also tightened the robustness guard from sceneT > 0.0 to sceneT > 0.1 to
+  prevent near-zero degenerate values from clamping tExit to almost zero.
+
+Why:
+  User confirmed: fog renders THROUGH blocks entirely, not just at edges.
+  This means depth clamping is not firing at all — rawDepth must be reading
+  as >= 0.9999 for block pixels, or sceneT is being computed wrong.
+
+  New information from user testing:
+    - The "redraw" only happens when TAPPING a movement key, not while flying.
+    - This points to a one-frame discrepancy when CamWorldPos shifts.
+    - If sceneT is wrong (too small) for one frame, tExit snaps to near-zero,
+      pathLen collapses, and the fog effectively vanishes for that frame.
+
+  Root cause hypothesis: MC's ShaderInstance.apply() auto-updates ProjMat from
+  its own internal state AFTER our explicit setUniform("ProjMat") call. This
+  overwrites our value. InvProjMat is a custom uniform — MC has no knowledge
+  of it and never touches it, so our Java-set value is guaranteed to survive
+  until the draw call. Mathematically equivalent results, but immune to MC
+  overwriting.
+
+Result:
+  Build passed. Awaiting user test.
+
+Problem introduced: Slightly more expensive per fragment (matrix multiply for
+  depth reconstruction vs two multiply-adds). Should be imperceptible.
+
+
+================================================================================
+CURRENT STATE (awaiting test of Change 4)
+================================================================================
+
+ISSUE A — Fog through blocks
+  Confirmed by user: fog renders through ALL block surfaces, not just edges.
+  This means the depth clamp block never fires, or sceneT is always too large.
+  Change 4 is the current fix attempt.
+
+ISSUE B — Fog flickers off/on when tapping movement keys
+  Confirmed by user: does NOT happen while flying in creative, only on the
+  first frame of movement (key tap). Likely caused by same root as Issue A —
+  wrong sceneT causes tExit to collapse to zero or very large, making fog
+  disappear for that frame. Should be resolved together with Issue A.
+
+
+================================================================================
+APPROACHES THAT WORKED IN PRIOR MOD VERSIONS (for reference)
+================================================================================
+
+V0.220 had confirmed working fog rendering:
+  - Same render stage (AFTER_WEATHER)
+  - Same depth formula (ProjMat[3][2] / (-ndcZ - ProjMat[2][2]))
+  - Used texture() not texelFetch for depth sampling
+  - Problem in V0.220 was the noise texture, not the renderer
+
+Box geometry approach (earlier in this version):
+  - Hardware depth test (RenderSystem.enableDepthTest()) naturally stopped fog
+    at geometry without any shader depth math
+  - Eliminated both artifacts and movement shimmer
+  - Rejected because: top face clips with blocks, visible box boundary at the
+    Y transition, incompatible with planned per-pocket density variation
+
+
+================================================================================
+THINGS NOT YET TRIED (if Change 4 still fails)
+================================================================================
+
+1. DEBUG: Temporarily output rawDepth as a grey value to screen to confirm
+   the DepthSampler is returning real depth data (dark = near, light = far).
+   If everything is white, the sampler isn't bound to the correct texture.
+
+2. DEBUG: Reduce HeightVariation to 0 (flat top, no FBM) to confirm whether
+   the flicker is from the FBM field vs the depth/stepping logic.
+
+3. Try binding the DepthSampler differently — pass the RenderTarget object
+   instead of the raw integer ID:
+     fogShader.setSampler("DepthSampler", mc.getMainRenderTarget());
+   In some MC versions setSampler(String, RenderTarget) binds the color
+   attachment, but there may be a NeoForge API for binding depth directly.
+
+4. Render at AFTER_TRANSLUCENT_BLOCKS instead of AFTER_WEATHER to check if
+   depth buffer state is different at that stage.
+
+5. Check if mc.getMainRenderTarget().getDepthTextureId() actually returns a
+   nonzero texture ID by logging it on first frame.
+
+
+================================================================================
+UNIFORM REFERENCE
+================================================================================
+
+Uniform        | Source        | Type     | Purpose
+---------------|---------------|----------|--------------------------------------------
+ModelViewMat   | MC auto-set   | mat4     | Camera rotation only (no translation)
+ProjMat        | MC + Java set | mat4     | Projection matrix for depth linearisation
+InvProjMat     | Java explicit | mat4     | NDC → view space (for ray reconstruction)
+DepthSampler   | Java explicit | sampler2D| Main framebuffer depth texture
+GameTime       | MC auto-set   | float    | Time for FBM surface drift animation
+CamWorldPos    | Java explicit | vec3     | Camera world position
+FogTopY        | Java (config) | float    | Nominal fog-top Y level
+FogBottomY     | Java (config) | float    | Fog floor Y level
+FogDensity     | Java (config) | float    | Extinction multiplier (0-5, default 1.5)
+HeightVariation| Java (config) | float    | FBM surface amplitude in blocks (default 10)
+HeightScale    | Java (config) | float    | FBM spatial frequency (default 0.003)
+FogColorRGB    | Java (config) | vec3     | Fog RGB colour (default 0.82, 0.88, 0.96)
+FogAlpha       | Java (config) | float    | Max fog alpha (default 0.92)
+
+Default config values (flatfog-server.toml):
+  fog_top_y         = 100.0
+  fog_bottom_y      = -64.0
+  fog_density       = 1.5
+  height_variation  = 10.0
+  height_scale      = 0.003
+  color r/g/b/a     = 0.82 / 0.88 / 0.96 / 0.92

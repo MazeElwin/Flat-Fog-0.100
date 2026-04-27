@@ -1,0 +1,29 @@
+# Gradle
+build/
+.gradle/
+gradle-app.setting
+*.gradle.bak
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+out/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+*.jar
+*.exe
+*.zip
+
+# Minecraft
+run/
+libs/
+
+# OS
+.DS_Store
+Thumbs.db
