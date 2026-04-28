@@ -4,10 +4,8 @@ in vec2 vTexCoord;
 
 uniform sampler2D DepthSampler;
 
-uniform mat4 InvProjMat;     // set from Java: inverse projection (NDC → view space)
-uniform vec3 CamForward;     // world-space look direction (from player yaw/pitch, no bobbing)
-uniform vec3 CamRight;       // world-space camera-right   (from player yaw/pitch, no bobbing)
-uniform vec3 CamUp;          // world-space camera-up      (from player yaw/pitch, no bobbing)
+uniform mat4 InvProjMat;  // NDC → view space
+uniform mat4 InvViewMat;  // view space → world space, built from camera.rotation() quaternion
 
 uniform vec3  CamWorldPos;
 uniform float GameTime;
@@ -62,15 +60,14 @@ float fogTopAt(vec2 worldXZ) {
 // ---------------------------------------------------------------------------
 
 void main() {
-    // Reconstruct world-space ray direction via camera basis vectors.
-    // InvProjMat maps the NDC near-plane point to view space; the view-space
-    // direction is then rotated to world space using pre-computed basis vectors
-    // derived from player yaw/pitch (not from the Camera object, which bobs).
+    // Reconstruct world-space ray direction.
+    // InvProjMat: NDC near-plane point → view space.
+    // InvViewMat: view space → world space (built from camera.rotation() quaternion,
+    // same rotation MC used to render this frame). w=0 treats the vector as a
+    // direction (no translation), which is correct for a ray from the camera origin.
     vec4 viewNear = InvProjMat * vec4(vTexCoord * 2.0 - 1.0, -1.0, 1.0);
     viewNear /= viewNear.w;
-    vec3 viewDir = normalize(viewNear.xyz);   // view-space ray direction
-    // view +X = CamRight, view +Y = CamUp, view -Z = CamForward
-    vec3 rayDir = normalize(viewDir.x * CamRight + viewDir.y * CamUp + (-viewDir.z) * CamForward);
+    vec3 rayDir = normalize((InvViewMat * vec4(viewNear.xyz, 0.0)).xyz);
 
     float camY      = CamWorldPos.y;
     float bandTop    = FogTopY + HeightVariation;
@@ -90,12 +87,9 @@ void main() {
     }
     if (tEntry >= tExit) discard;
 
-    // Clamp tExit to scene geometry using Euclidean distance.
-    // Dividing sceneViewZ by viewDir.z ties the clamp to the bobbed view space,
-    // which becomes inconsistent with the non-bobbed world-space rayDir when
-    // view bobbing is on. Euclidean distance (length of the view-space position
-    // vector) is rotation-agnostic — the same whether the camera is bobbing or
-    // not — so it correctly bounds the world-space ray at any camera tilt.
+    // Clamp tExit to scene geometry using Euclidean view-space distance.
+    // Rotation preserves vector length, so length(viewPos) = world-space distance
+    // from camera to geometry regardless of camera orientation or view bobbing.
     {
         float rawDepth = texelFetch(DepthSampler, ivec2(gl_FragCoord.xy), 0).r;
         if (rawDepth < 0.9999) {

@@ -20,12 +20,11 @@ import org.joml.Matrix4f;
  * Full-screen screen-space fog renderer.
  *
  * Draws a single NDC quad that covers every pixel. The fragment shader reconstructs
- * world-space ray directions from InvProjMat (NDC → view space) and explicit camera
- * basis vectors (CamForward/CamUp/CamRight) computed from player yaw/pitch angles.
- *
- * Basis vectors are computed from mc.player.getYRot()/getXRot() rather than from
- * the Camera object, which includes MC's view-bob transform. Bob oscillates the
- * camera basis vectors every walking frame; using raw rotation angles bypasses it.
+ * world-space ray directions from InvProjMat (NDC → view space) and InvViewMat
+ * (view space → world space). InvViewMat is built directly from the camera's rotation
+ * quaternion — the same rotation MC uses to render the scene — so the fog ray exactly
+ * matches the rendered perspective, including any view-bob contribution. The depth clamp
+ * uses Euclidean view-space distance, which is rotation-invariant.
  */
 @EventBusSubscriber(modid = FlatFog.MOD_ID, value = Dist.CLIENT)
 public class FlatFogRenderer {
@@ -34,7 +33,7 @@ public class FlatFogRenderer {
 
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {
-        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_WEATHER) return;
+        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) return;
         if (fogShader == null || !ClientFogSettings.hasData()) return;
 
         Minecraft mc = Minecraft.getInstance();
@@ -43,23 +42,18 @@ public class FlatFogRenderer {
         Vec3 camPos = event.getCamera().getPosition();
         float[] color = ClientFogSettings.getFogColor();
 
-        // InvProjMat: NDC → view space for ray direction and depth reconstruction.
+        // InvProjMat: NDC → view space.
         Matrix4f projMat    = new Matrix4f(event.getProjectionMatrix());
         Matrix4f invProjMat = projMat.invert(new Matrix4f());
         setUniform("InvProjMat", invProjMat);
 
-        // Camera basis vectors from stable player angles (no bobbing).
-        // mc.player.get[XY]Rot() are the raw rotation values; the Camera object
-        // adds a bobbing offset on top of these, which causes per-frame shimmer.
-        float yaw      = (float)(mc.player.getYRot()  * Math.PI / 180.0);
-        float pitch    = (float)(mc.player.getXRot()  * Math.PI / 180.0);
-        float sinYaw   = (float) Math.sin(yaw);
-        float cosYaw   = (float) Math.cos(yaw);
-        float sinPitch = (float) Math.sin(pitch);
-        float cosPitch = (float) Math.cos(pitch);
-        setUniform("CamForward", -sinYaw * cosPitch, -sinPitch,         cosYaw  * cosPitch);
-        setUniform("CamRight",   -cosYaw,            0f,                -sinYaw            );
-        setUniform("CamUp",      -sinPitch * sinYaw,  cosPitch,          sinPitch * cosYaw );
+        // InvViewMat: view space → world space using the camera's actual rotation quaternion.
+        // MC camera-local convention: +Z = forward. OpenGL view-space convention: -Z = forward.
+        // The scale(1,1,-1) flips Z so the two conventions agree before the quaternion is applied.
+        // Result: InvViewMat * (0,0,-1) = look direction, InvViewMat * (1,0,0) = right, etc.
+        org.joml.Quaternionf camRot = new org.joml.Quaternionf(event.getCamera().rotation());
+        Matrix4f invViewMat = new Matrix4f().rotate(camRot).scale(1f, 1f, -1f);
+        setUniform("InvViewMat", invViewMat);
 
         setUniform("CamWorldPos",     (float)camPos.x, (float)camPos.y, (float)camPos.z);
         setUniform("FogTopY",         ClientFogSettings.getFogTopY());
