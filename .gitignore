@@ -22,7 +22,12 @@ out/
 
 # Minecraft
 run/
+runs/
 libs/
+
+# Local files
+SESSION_NOTES.txt
+version.txt
 
 # OS
 .DS_Store

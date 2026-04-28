@@ -16,16 +16,16 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.joml.Matrix4f;
 
-/**
- * Full-screen screen-space fog renderer.
- *
- * Draws a single NDC quad. The fragment shader uses two projection inverses:
- *   InvProjMatStable — built from raw FOV, no view-bob baked in → stable ray directions
- *   InvProjMat       — from the event (view bob included) → correct depth / sceneT
- * InvViewMat is the event model-view inverse (pure camera rotation, no bob).
- */
 @EventBusSubscriber(modid = FlatFog.MOD_ID, value = Dist.CLIENT)
 public class FlatFogRenderer {
+
+    private static final float HEIGHT_VARIATION = 3.0f;
+    private static final float HEIGHT_SCALE     = 0.0005f;
+    private static final float FOG_DENSITY      = 1.5f;
+    private static final float FOG_COLOR_R      = 0.82f;
+    private static final float FOG_COLOR_G      = 0.88f;
+    private static final float FOG_COLOR_B      = 0.96f;
+    private static final float FOG_ALPHA        = 0.92f;
 
     static ShaderInstance fogShader = null;
 
@@ -38,35 +38,23 @@ public class FlatFogRenderer {
         if (mc.player == null || mc.level == null) return;
 
         Vec3 camPos = event.getCamera().getPosition();
-        float[] color = ClientFogSettings.getFogColor();
 
-        // InvProjMat: from the event projection (includes view-bob). Used only for
-        // sceneT depth comparison so it decodes the depth buffer correctly.
         Matrix4f invProjMat = new Matrix4f(event.getProjectionMatrix()).invert();
         setUniform("InvProjMat", invProjMat);
 
-        // InvProjMatStable: built from the raw FOV option, no view-bob baked in.
-        // Used only for fog ray directions so the fog horizon doesn't shift with walking.
-        float fovRad = (float) Math.toRadians(mc.options.fov().get());
-        float aspect = (float) mc.getWindow().getWidth() / mc.getWindow().getHeight();
-        Matrix4f invProjMatStable = new Matrix4f().perspective(fovRad, aspect, 0.05f, 1024.0f).invert();
-        setUniform("InvProjMatStable", invProjMatStable);
-
-        // InvViewMat: event model-view inverse = pure camera rotation (no bob).
         Matrix4f invViewMat = new Matrix4f(event.getModelViewMatrix()).invert();
         setUniform("InvViewMat", invViewMat);
 
-        // GameTime: fractional day (0-1) used for fog surface animation.
         float gameTime = (float)(mc.level.getGameTime() % 24000L) / 24000.0f;
         setUniform("GameTime",        gameTime);
         setUniform("CamWorldPos",     (float)camPos.x, (float)camPos.y, (float)camPos.z);
         setUniform("FogTopY",         ClientFogSettings.getFogTopY());
         setUniform("FogBottomY",      ClientFogSettings.getFogBottomY());
-        setUniform("FogDensity",      ClientFogSettings.getFogDensity());
-        setUniform("HeightVariation", ClientFogSettings.getHeightVariation());
-        setUniform("HeightScale",     ClientFogSettings.getHeightScale());
-        setUniform("FogColorRGB",     color[0], color[1], color[2]);
-        setUniform("FogAlpha",        color[3]);
+        setUniform("FogDensity",      FOG_DENSITY);
+        setUniform("HeightVariation", HEIGHT_VARIATION);
+        setUniform("HeightScale",     HEIGHT_SCALE);
+        setUniform("FogColorRGB",     FOG_COLOR_R, FOG_COLOR_G, FOG_COLOR_B);
+        setUniform("FogAlpha",        FOG_ALPHA);
 
         var depthTarget = mc.getMainRenderTarget();
         setUniform("DepthTexSize", (float) depthTarget.width, (float) depthTarget.height);

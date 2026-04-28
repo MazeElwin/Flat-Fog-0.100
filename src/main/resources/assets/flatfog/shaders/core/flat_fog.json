@@ -22,8 +22,8 @@
         { "name": "FogTopY",         "type": "float",     "count": 1,  "values": [100.0] },
         { "name": "FogBottomY",      "type": "float",     "count": 1,  "values": [-64.0] },
         { "name": "FogDensity",      "type": "float",     "count": 1,  "values": [1.5] },
-        { "name": "HeightVariation", "type": "float",     "count": 1,  "values": [10.0] },
-        { "name": "HeightScale",     "type": "float",     "count": 1,  "values": [0.003] },
+        { "name": "HeightVariation", "type": "float",     "count": 1,  "values": [5.0] },
+        { "name": "HeightScale",     "type": "float",     "count": 1,  "values": [0.0005] },
         { "name": "FogColorRGB",     "type": "float",     "count": 3,  "values": [0.82, 0.88, 0.96] },
         { "name": "FogAlpha",        "type": "float",     "count": 1,  "values": [0.92] }
     ]

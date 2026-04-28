@@ -15,18 +15,9 @@ public class ServerEventHandler {
     @SubscribeEvent
     public static void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
-        PacketDistributor.sendToPlayer(player, buildPayload());
-    }
-
-    private static FogSettingsPayload buildPayload() {
-        float[] color = FlatFogConfig.getFogColor();
-        return new FogSettingsPayload(
+        PacketDistributor.sendToPlayer(player, new FogSettingsPayload(
             FlatFogConfig.FOG_TOP_Y.get().floatValue(),
-            FlatFogConfig.FOG_BOTTOM_Y.get().floatValue(),
-            FlatFogConfig.FOG_DENSITY.get().floatValue(),
-            FlatFogConfig.HEIGHT_VARIATION.get().floatValue(),
-            FlatFogConfig.HEIGHT_SCALE.get().floatValue(),
-            color[0], color[1], color[2], color[3]
-        );
+            FlatFogConfig.FOG_BOTTOM_Y.get().floatValue()
+        ));
     }
 }
