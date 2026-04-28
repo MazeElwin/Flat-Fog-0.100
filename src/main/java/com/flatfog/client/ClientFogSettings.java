@@ -9,15 +9,12 @@ import com.flatfog.network.FogSettingsPayload;
  */
 public class ClientFogSettings {
 
-    private static float fogTopY      = 100.0f;
-    private static float fogBottomY   = -64.0f;
-    private static float fogDensity   = 1.5f;
+    private static float fogTopY         = 100.0f;
+    private static float fogBottomY      = -64.0f;
+    private static float fogDensity      = 1.5f;
     private static float heightVariation = 10.0f;
-    private static float heightScale  = 0.003f;
-    private static float colorR = 0.82f;
-    private static float colorG = 0.88f;
-    private static float colorB = 0.96f;
-    private static float colorA = 0.92f;
+    private static float heightScale     = 0.003f;
+    private static final float[] fogColor = { 0.82f, 0.88f, 0.96f, 0.92f };
 
     private static boolean received = true;  // defaults are sane; server sync overrides on join
 
@@ -27,10 +24,10 @@ public class ClientFogSettings {
         fogDensity      = payload.fogDensity();
         heightVariation = payload.heightVariation();
         heightScale     = payload.heightScale();
-        colorR          = payload.colorR();
-        colorG          = payload.colorG();
-        colorB          = payload.colorB();
-        colorA          = payload.colorA();
+        fogColor[0]     = payload.colorR();
+        fogColor[1]     = payload.colorG();
+        fogColor[2]     = payload.colorB();
+        fogColor[3]     = payload.colorA();
         received        = true;
     }
 
@@ -40,5 +37,5 @@ public class ClientFogSettings {
     public static float getFogDensity()      { return fogDensity; }
     public static float getHeightVariation() { return heightVariation; }
     public static float getHeightScale()     { return heightScale; }
-    public static float[] getFogColor()      { return new float[]{colorR, colorG, colorB, colorA}; }
+    public static float[] getFogColor()      { return fogColor; }
 }

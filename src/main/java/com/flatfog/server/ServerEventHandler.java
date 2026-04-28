@@ -18,7 +18,7 @@ public class ServerEventHandler {
         PacketDistributor.sendToPlayer(player, buildPayload());
     }
 
-    public static FogSettingsPayload buildPayload() {
+    private static FogSettingsPayload buildPayload() {
         float[] color = FlatFogConfig.getFogColor();
         return new FogSettingsPayload(
             FlatFogConfig.FOG_TOP_Y.get().floatValue(),

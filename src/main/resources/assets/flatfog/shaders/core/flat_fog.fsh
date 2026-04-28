@@ -4,8 +4,10 @@ in vec2 vTexCoord;
 
 uniform sampler2D DepthSampler;
 
-uniform mat4 InvProjMat;  // NDC → view space
-uniform mat4 InvViewMat;  // view space → world space, built from camera.rotation() quaternion
+uniform mat4 InvProjMat;        // event projection inverse — includes view bob, used for sceneT
+uniform mat4 InvProjMatStable;  // raw-FOV projection inverse — no view bob, used for ray direction
+uniform mat4 InvViewMat;        // event model-view inverse — pure camera rotation
+uniform vec2 DepthTexSize;      // depth texture dimensions, set per-frame by the renderer
 
 uniform vec3  CamWorldPos;
 uniform float GameTime;
@@ -60,12 +62,9 @@ float fogTopAt(vec2 worldXZ) {
 // ---------------------------------------------------------------------------
 
 void main() {
-    // Reconstruct world-space ray direction.
-    // InvProjMat: NDC near-plane point → view space.
-    // InvViewMat: view space → world space (built from camera.rotation() quaternion,
-    // same rotation MC used to render this frame). w=0 treats the vector as a
-    // direction (no translation), which is correct for a ray from the camera origin.
-    vec4 viewNear = InvProjMat * vec4(vTexCoord * 2.0 - 1.0, -1.0, 1.0);
+    // Reconstruct world-space ray direction using the bob-free projection so the
+    // fog horizon stays fixed as the player walks with view bobbing enabled.
+    vec4 viewNear = InvProjMatStable * vec4(vTexCoord * 2.0 - 1.0, -1.0, 1.0);
     viewNear /= viewNear.w;
     vec3 rayDir = normalize((InvViewMat * vec4(viewNear.xyz, 0.0)).xyz);
 
@@ -91,7 +90,8 @@ void main() {
     // Rotation preserves vector length, so length(viewPos) = world-space distance
     // from camera to geometry regardless of camera orientation or view bobbing.
     {
-        float rawDepth = texelFetch(DepthSampler, ivec2(gl_FragCoord.xy), 0).r;
+        ivec2 depthPixel = ivec2(clamp(vTexCoord, vec2(0.0), vec2(0.999999)) * DepthTexSize);
+        float rawDepth = texelFetch(DepthSampler, depthPixel, 0).r;
         if (rawDepth < 0.9999) {
             vec4 ndcPos  = vec4(vTexCoord * 2.0 - 1.0, rawDepth * 2.0 - 1.0, 1.0);
             vec4 viewPos = InvProjMat * ndcPos;
@@ -101,13 +101,11 @@ void main() {
     }
     if (tEntry >= tExit) discard;
 
-    // Stepped integration with a fixed world-space step size.
-    // Adaptive step counts (pathLen/N) shift all sample positions each frame
-    // as pathLen changes, causing visible shimmer when moving.
-    // A fixed 2-block step keeps each sample's world contribution stable.
+    // Stepped integration. Step size grows with path length so all 64 steps
+    // always cover the full marched range; minimum 2 blocks for short paths.
     float pathLen  = tExit - tEntry;
-    float stepSize = 2.0;
-    int   STEPS    = min(int(pathLen / stepSize) + 1, 48);
+    float stepSize = max(2.0, pathLen / 64.0);
+    int   STEPS    = min(int(pathLen / stepSize) + 1, 64);
 
     float transmittance = 1.0;
     for (int i = 0; i < STEPS; i++) {

@@ -19,17 +19,15 @@ import org.joml.Matrix4f;
 /**
  * Full-screen screen-space fog renderer.
  *
- * Draws a single NDC quad that covers every pixel. The fragment shader reconstructs
- * world-space ray directions from InvProjMat (NDC → view space) and InvViewMat
- * (view space → world space). InvViewMat is built directly from the camera's rotation
- * quaternion — the same rotation MC uses to render the scene — so the fog ray exactly
- * matches the rendered perspective, including any view-bob contribution. The depth clamp
- * uses Euclidean view-space distance, which is rotation-invariant.
+ * Draws a single NDC quad. The fragment shader uses two projection inverses:
+ *   InvProjMatStable — built from raw FOV, no view-bob baked in → stable ray directions
+ *   InvProjMat       — from the event (view bob included) → correct depth / sceneT
+ * InvViewMat is the event model-view inverse (pure camera rotation, no bob).
  */
 @EventBusSubscriber(modid = FlatFog.MOD_ID, value = Dist.CLIENT)
 public class FlatFogRenderer {
 
-    public static ShaderInstance fogShader = null;
+    static ShaderInstance fogShader = null;
 
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {
@@ -42,17 +40,20 @@ public class FlatFogRenderer {
         Vec3 camPos = event.getCamera().getPosition();
         float[] color = ClientFogSettings.getFogColor();
 
-        // InvProjMat: NDC → view space.
-        Matrix4f projMat    = new Matrix4f(event.getProjectionMatrix());
-        Matrix4f invProjMat = projMat.invert(new Matrix4f());
+        // InvProjMat: from the event projection (includes view-bob). Used only for
+        // sceneT depth comparison so it decodes the depth buffer correctly.
+        Matrix4f invProjMat = new Matrix4f(event.getProjectionMatrix()).invert();
         setUniform("InvProjMat", invProjMat);
 
-        // InvViewMat: view space → world space using the camera's actual rotation quaternion.
-        // MC camera-local convention: +Z = forward. OpenGL view-space convention: -Z = forward.
-        // The scale(1,1,-1) flips Z so the two conventions agree before the quaternion is applied.
-        // Result: InvViewMat * (0,0,-1) = look direction, InvViewMat * (1,0,0) = right, etc.
-        org.joml.Quaternionf camRot = new org.joml.Quaternionf(event.getCamera().rotation());
-        Matrix4f invViewMat = new Matrix4f().rotate(camRot).scale(1f, 1f, -1f);
+        // InvProjMatStable: built from the raw FOV option, no view-bob baked in.
+        // Used only for fog ray directions so the fog horizon doesn't shift with walking.
+        float fovRad = (float) Math.toRadians(mc.options.fov().get());
+        float aspect = (float) mc.getWindow().getWidth() / mc.getWindow().getHeight();
+        Matrix4f invProjMatStable = new Matrix4f().perspective(fovRad, aspect, 0.05f, 1024.0f).invert();
+        setUniform("InvProjMatStable", invProjMatStable);
+
+        // InvViewMat: event model-view inverse = pure camera rotation (no bob).
+        Matrix4f invViewMat = new Matrix4f(event.getModelViewMatrix()).invert();
         setUniform("InvViewMat", invViewMat);
 
         // GameTime: fractional day (0-1) used for fog surface animation.
@@ -67,8 +68,9 @@ public class FlatFogRenderer {
         setUniform("FogColorRGB",     color[0], color[1], color[2]);
         setUniform("FogAlpha",        color[3]);
 
-        // Bind scene depth texture so the shader can stop fog at geometry.
-        fogShader.setSampler("DepthSampler", mc.getMainRenderTarget().getDepthTextureId());
+        var depthTarget = mc.getMainRenderTarget();
+        setUniform("DepthTexSize", (float) depthTarget.width, (float) depthTarget.height);
+        fogShader.setSampler("DepthSampler", depthTarget.getDepthTextureId());
 
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
@@ -77,7 +79,6 @@ public class FlatFogRenderer {
 
         RenderSystem.setShader(() -> fogShader);
 
-        // Full-screen quad in clip/NDC space.
         Tesselator tess = Tesselator.getInstance();
         BufferBuilder buf = tess.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION);
         buf.addVertex(-1.0f, -1.0f, 0.0f);
@@ -94,6 +95,11 @@ public class FlatFogRenderer {
     private static void setUniform(String name, Matrix4f value) {
         var u = fogShader.getUniform(name);
         if (u != null) u.set(value);
+    }
+
+    private static void setUniform(String name, float a, float b) {
+        var u = fogShader.getUniform(name);
+        if (u != null) u.set(a, b);
     }
 
     private static void setUniform(String name, float a, float b, float c) {
