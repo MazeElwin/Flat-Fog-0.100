@@ -20,15 +20,12 @@ import org.joml.Matrix4f;
  * Full-screen screen-space fog renderer.
  *
  * Draws a single NDC quad that covers every pixel. The fragment shader reconstructs
- * world-space ray directions using:
- *   - InvProjMat  (set from event.getProjectionMatrix().invert()) to go NDC → view space
- *   - ModelViewMat (auto-set by MC — the camera rotation matrix) used as
- *     transpose(mat3(ModelViewMat)) to go view space → world space
+ * world-space ray directions from InvProjMat (NDC → view space) and explicit camera
+ * basis vectors (CamForward/CamUp/CamRight) computed from player yaw/pitch angles.
  *
- * This avoids PoseStack entirely, which can accumulate stale transforms by AFTER_WEATHER.
- *
- * The scene depth buffer is read via texelFetch to clamp the fog ray at geometry,
- * preventing fog from bleeding through solid blocks.
+ * Basis vectors are computed from mc.player.getYRot()/getXRot() rather than from
+ * the Camera object, which includes MC's view-bob transform. Bob oscillates the
+ * camera basis vectors every walking frame; using raw rotation angles bypasses it.
  */
 @EventBusSubscriber(modid = FlatFog.MOD_ID, value = Dist.CLIENT)
 public class FlatFogRenderer {
@@ -46,14 +43,24 @@ public class FlatFogRenderer {
         Vec3 camPos = event.getCamera().getPosition();
         float[] color = ClientFogSettings.getFogColor();
 
-        // ProjMat + InvProjMat: depth linearisation and view-space reconstruction.
-        // ProjMat is declared in the JSON but MC's auto-uniform system does not
-        // reliably update it for custom shaders, so we set both explicitly.
+        // InvProjMat: NDC → view space for ray direction and depth reconstruction.
         Matrix4f projMat    = new Matrix4f(event.getProjectionMatrix());
         Matrix4f invProjMat = projMat.invert(new Matrix4f());
+        setUniform("InvProjMat", invProjMat);
 
-        setUniform("ProjMat",         projMat);
-        setUniform("InvProjMat",      invProjMat);
+        // Camera basis vectors from stable player angles (no bobbing).
+        // mc.player.get[XY]Rot() are the raw rotation values; the Camera object
+        // adds a bobbing offset on top of these, which causes per-frame shimmer.
+        float yaw      = (float)(mc.player.getYRot()  * Math.PI / 180.0);
+        float pitch    = (float)(mc.player.getXRot()  * Math.PI / 180.0);
+        float sinYaw   = (float) Math.sin(yaw);
+        float cosYaw   = (float) Math.cos(yaw);
+        float sinPitch = (float) Math.sin(pitch);
+        float cosPitch = (float) Math.cos(pitch);
+        setUniform("CamForward", -sinYaw * cosPitch, -sinPitch,         cosYaw  * cosPitch);
+        setUniform("CamRight",   -cosYaw,            0f,                -sinYaw            );
+        setUniform("CamUp",      -sinPitch * sinYaw,  cosPitch,          sinPitch * cosYaw );
+
         setUniform("CamWorldPos",     (float)camPos.x, (float)camPos.y, (float)camPos.z);
         setUniform("FogTopY",         ClientFogSettings.getFogTopY());
         setUniform("FogBottomY",      ClientFogSettings.getFogBottomY());

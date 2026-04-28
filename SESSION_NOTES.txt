@@ -252,15 +252,62 @@ Problem introduced: None. Rotation-based vectors are more fundamental and stable
 
 
 ================================================================================
-CURRENT STATE (Change 5b deployed — ready for testing with bobbing ON)
+CHANGE 6 — Full camera basis vector implementation (source files updated)
+================================================================================
+What:
+  Applied the camera-basis-vector approach to the actual source files.
+  Previous session notes described Changes 5 and 5b as "awaiting user test"
+  but the source files still had ModelViewMat. Build13 confirmed the bobbing
+  issue persists.
+
+  Three files changed:
+
+  FlatFogRenderer.java:
+    - Removed ModelViewMat dependency entirely (no longer sent or used)
+    - Added camera basis vector computation from mc.player.getYRot()/getXRot()
+      (stable rotation angles, NOT from Camera object which includes bobbing)
+    - Sends CamForward, CamRight, CamUp uniforms each frame
+
+  flat_fog.json:
+    - Removed ModelViewMat entry
+    - Added CamForward, CamRight, CamUp uniform entries (float, count 3)
+
+  flat_fog.fsh:
+    - Removed uniform mat4 ModelViewMat
+    - Added uniform vec3 CamForward/CamRight/CamUp
+    - Ray direction: was transpose(mat3(ModelViewMat)) * viewDir
+                     now viewDir.x * CamRight + viewDir.y * CamUp + (-viewDir.z) * CamForward
+    - Depth clamp: vrd was normalize(mat3(ModelViewMat) * rayDir)
+                   now just viewDir (already in scope, mathematically equivalent
+                   since mat3(MVM)*rayDir is the view-space direction = viewDir)
+
+Why:
+  MC's Camera object applies a view-bob offset to the rotation every frame when
+  the player is walking. The bob oscillates position and angle each frame, so
+  any matrix derived from it (ModelViewMat) changes erratically. Using it to
+  reconstruct world-space rays causes per-frame ray direction changes, which
+  collapse the fog transmittance integral to near-zero on some frames (the flash).
+
+  mc.player.getYRot()/getXRot() return the raw rotation angles without the bob
+  offset. Deriving basis vectors from these gives frame-to-frame stability.
+
+Result:
+  Build pending. Expected: fog stable with View Bobbing ON.
+  Render stage is still AFTER_WEATHER (weather particle depth issue is separate).
+
+================================================================================
+CURRENT STATE (Change 6 in source — pending build and test)
 ================================================================================
 
-Two root-cause fixes combined:
-- Render stage: AFTER_TRANSLUCENT_BLOCKS (no weather particle depth)
-- Camera vectors: computed from player yaw/pitch (stable, no bobbing jitter)
+Active fixes:
+- Render stage: AFTER_WEATHER (weather particle depth not yet addressed)
+- Camera vectors: computed from player yaw/pitch in Java, sent as CamForward/CamRight/CamUp
+- ModelViewMat: completely removed from all three files
+- ProjMat: removed (was unused in GLSL, causing warning; fix landed in build13)
 
-Expected results:
-- Square artifacts gone (no weather depth interfering)- Fog stable when walking/moving with View Bobbing ON (no per-frame shimmer)
+Expected results after build:
+- Fog stable when walking with View Bobbing ON (no per-frame flash)
+- Weather particle depth artifacts may still appear (separate issue)
 
 Await user test.
 
