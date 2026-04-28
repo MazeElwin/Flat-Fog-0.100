@@ -55,6 +55,9 @@ public class FlatFogRenderer {
         Matrix4f invViewMat = new Matrix4f().rotate(camRot).scale(1f, 1f, -1f);
         setUniform("InvViewMat", invViewMat);
 
+        // GameTime: fractional day (0-1) used for fog surface animation.
+        float gameTime = (float)(mc.level.getGameTime() % 24000L) / 24000.0f;
+        setUniform("GameTime",        gameTime);
         setUniform("CamWorldPos",     (float)camPos.x, (float)camPos.y, (float)camPos.z);
         setUniform("FogTopY",         ClientFogSettings.getFogTopY());
         setUniform("FogBottomY",      ClientFogSettings.getFogBottomY());
