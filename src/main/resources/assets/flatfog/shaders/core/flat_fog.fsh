@@ -4,9 +4,8 @@ in vec2 vTexCoord;
 
 uniform sampler2D DepthSampler;
 
-uniform mat4 InvProjMat;        // event projection inverse — includes view bob, used for sceneT
-uniform mat4 InvProjMatStable;  // raw-FOV projection inverse — no view bob, used for ray direction
-uniform mat4 InvViewMat;        // event model-view inverse — pure camera rotation
+uniform mat4 InvProjMat;
+uniform mat4 InvViewMat;
 uniform vec2 DepthTexSize;      // depth texture dimensions, set per-frame by the renderer
 
 uniform vec3  CamWorldPos;
@@ -62,13 +61,12 @@ float fogTopAt(vec2 worldXZ) {
 // ---------------------------------------------------------------------------
 
 void main() {
-    // Reconstruct world-space ray direction using the bob-free projection so the
-    // fog horizon stays fixed as the player walks with view bobbing enabled.
-    vec4 viewNear = InvProjMatStable * vec4(vTexCoord * 2.0 - 1.0, -1.0, 1.0);
+    vec4 viewNear = InvProjMat * vec4(vTexCoord * 2.0 - 1.0, -1.0, 1.0);
     viewNear /= viewNear.w;
     vec3 rayDir = normalize((InvViewMat * vec4(viewNear.xyz, 0.0)).xyz);
 
-    float camY      = CamWorldPos.y;
+    vec3 camPos = CamWorldPos;
+    float camY  = camPos.y;
     float bandTop    = FogTopY + HeightVariation;
     float bandBottom = FogBottomY;
 
@@ -111,7 +109,7 @@ void main() {
     for (int i = 0; i < STEPS; i++) {
         float t   = tEntry + (float(i) + 0.5) * stepSize;
         if (t >= tExit) break;
-        vec3  pos = CamWorldPos + rayDir * t;
+        vec3  pos = camPos + rayDir * t;
 
         if (pos.y < bandBottom) continue;
 

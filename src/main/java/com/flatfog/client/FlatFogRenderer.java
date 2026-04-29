@@ -9,6 +9,7 @@ import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.ShaderInstance;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -39,10 +40,43 @@ public class FlatFogRenderer {
 
         Vec3 camPos = event.getCamera().getPosition();
 
-        Matrix4f invProjMat = new Matrix4f(event.getProjectionMatrix()).invert();
+        float fovRad = (float) Math.toRadians(mc.options.fov().get());
+        float aspect = (float) mc.getWindow().getWidth() / mc.getWindow().getHeight();
+        Matrix4f invProjMat = new Matrix4f().perspective(fovRad, aspect, 0.05f, 1024.0f).invert();
         setUniform("InvProjMat", invProjMat);
 
         Matrix4f invViewMat = new Matrix4f(event.getModelViewMatrix()).invert();
+
+        // Strip view-bob out of InvViewMat by pre-multiplying the exact BobMat
+        // that bobView() applied. BobMat * event_InvViewMat = bob-free InvViewMat.
+        if (mc.options.bobView().get()) {
+            float partialTick = event.getPartialTick().getGameTimeDeltaPartialTick(false);
+            float f  = mc.player.walkDist - mc.player.walkDistO;
+            float g  = -(mc.player.walkDist + f * partialTick);
+            float h  = Mth.lerp(partialTick, mc.player.oBob, mc.player.bob);
+
+            float bobX  = Mth.sin(g * (float)Math.PI) * h * 0.5f;
+            float bobY  = -(float)Math.abs(Math.cos(g * Math.PI) * h);
+            float bobRZ = Mth.sin(g * (float)Math.PI) * h * 3.0f;       // degrees
+            float bobRX = (float)Math.abs(Math.cos(g * Math.PI) * h) * 5.0f; // degrees
+
+            Matrix4f bobMat = new Matrix4f()
+                .translate(bobX, bobY, 0.0f)
+                .rotateZ((float)Math.toRadians(bobRZ))
+                .rotateX((float)Math.toRadians(bobRX));
+
+            invViewMat = new Matrix4f(bobMat).mul(invViewMat);
+
+            // Also counteract the bob translation's effect on the fog camera position.
+            // The bob shifts the scene by (bobX, bobY, 0) in view space; compensate
+            // by moving camPos by the equivalent world-space offset (using the rotation
+            // columns of the now-bob-free InvViewMat).
+            float wx = invViewMat.m00() * (-bobX) + invViewMat.m10() * (-bobY);
+            float wy = invViewMat.m01() * (-bobX) + invViewMat.m11() * (-bobY);
+            float wz = invViewMat.m02() * (-bobX) + invViewMat.m12() * (-bobY);
+            camPos = camPos.add(wx, wy, wz);
+        }
+
         setUniform("InvViewMat", invViewMat);
 
         float gameTime = (float)(mc.level.getGameTime() % 24000L) / 24000.0f;
