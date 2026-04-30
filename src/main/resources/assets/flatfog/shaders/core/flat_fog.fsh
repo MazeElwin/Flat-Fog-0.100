@@ -4,9 +4,8 @@ in vec2 vTexCoord;
 
 uniform sampler2D DepthSampler;
 
-uniform mat4 InvProjMat;
+uniform mat4 InvProjMatStable;  // raw-FOV projection, no bob — ray directions and depth decode
 uniform mat4 InvViewMat;
-uniform vec2 DepthTexSize;      // depth texture dimensions, set per-frame by the renderer
 
 uniform vec3  CamWorldPos;
 uniform float GameTime;
@@ -61,7 +60,7 @@ float fogTopAt(vec2 worldXZ) {
 // ---------------------------------------------------------------------------
 
 void main() {
-    vec4 viewNear = InvProjMat * vec4(vTexCoord * 2.0 - 1.0, -1.0, 1.0);
+    vec4 viewNear = InvProjMatStable * vec4(vTexCoord * 2.0 - 1.0, -1.0, 1.0);
     viewNear /= viewNear.w;
     vec3 rayDir = normalize((InvViewMat * vec4(viewNear.xyz, 0.0)).xyz);
 
@@ -88,11 +87,11 @@ void main() {
     // Rotation preserves vector length, so length(viewPos) = world-space distance
     // from camera to geometry regardless of camera orientation or view bobbing.
     {
-        ivec2 depthPixel = ivec2(clamp(vTexCoord, vec2(0.0), vec2(0.999999)) * DepthTexSize);
+        ivec2 depthPixel = ivec2(clamp(vTexCoord, vec2(0.0), vec2(0.999999)) * vec2(textureSize(DepthSampler, 0)));
         float rawDepth = texelFetch(DepthSampler, depthPixel, 0).r;
-        if (rawDepth < 0.9999) {
+        if (rawDepth < 1.0) {
             vec4 ndcPos  = vec4(vTexCoord * 2.0 - 1.0, rawDepth * 2.0 - 1.0, 1.0);
-            vec4 viewPos = InvProjMat * ndcPos;
+            vec4 viewPos = InvProjMatStable * ndcPos;
             float sceneT = length(viewPos.xyz / viewPos.w);
             if (sceneT > 0.1) tExit = min(tExit, sceneT);
         }

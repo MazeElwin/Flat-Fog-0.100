@@ -40,41 +40,36 @@ public class FlatFogRenderer {
 
         Vec3 camPos = event.getCamera().getPosition();
 
-        float fovRad = (float) Math.toRadians(mc.options.fov().get());
-        float aspect = (float) mc.getWindow().getWidth() / mc.getWindow().getHeight();
-        Matrix4f invProjMat = new Matrix4f().perspective(fovRad, aspect, 0.05f, 1024.0f).invert();
-        setUniform("InvProjMat", invProjMat);
+        // Stable projection: extract FOV, near, and far from the actual projection matrix so the
+        // depth decode uses the same clip planes MC used to render the scene. Hardcoding far=1024
+        // causes sceneT to be overestimated (fog bleeds through terrain at distance). The bob lives
+        // in the x/y translation terms of the projection matrix; m22/m32 (depth row) are unaffected.
+        Matrix4f proj    = event.getProjectionMatrix();
+        float yscale     = proj.m11();
+        float fovRad     = 2.0f * (float) Math.atan(1.0f / yscale);
+        float aspect     = (float) mc.getWindow().getWidth() / mc.getWindow().getHeight();
+        float nearPlane  = proj.m32() / (proj.m22() - 1.0f);
+        float farPlane   = proj.m32() / (proj.m22() + 1.0f);
+        Matrix4f invProjMatStable = new Matrix4f().perspective(fovRad, aspect, nearPlane, farPlane).invert();
+        setUniform("InvProjMatStable", invProjMatStable);
 
+        // Model-view is pure camera rotation (MC applies bob to projection, not model-view).
         Matrix4f invViewMat = new Matrix4f(event.getModelViewMatrix()).invert();
 
-        // Strip view-bob out of InvViewMat by pre-multiplying the exact BobMat
-        // that bobView() applied. BobMat * event_InvViewMat = bob-free InvViewMat.
-        if (mc.options.bobView().get()) {
+        // Apply only the ROTATION component of view bob to InvViewMat so fog rays co-rotate
+        // with the world geometry. We skip the translation component (bobX, bobY) because that
+        // lives in the projection matrix and using it for ray directions causes the off-screen blink.
+        if (mc.options.bobView().get() && mc.player != null) {
             float partialTick = event.getPartialTick().getGameTimeDeltaPartialTick(false);
-            float f  = mc.player.walkDist - mc.player.walkDistO;
-            float g  = -(mc.player.walkDist + f * partialTick);
-            float h  = Mth.lerp(partialTick, mc.player.oBob, mc.player.bob);
-
-            float bobX  = Mth.sin(g * (float)Math.PI) * h * 0.5f;
-            float bobY  = -(float)Math.abs(Math.cos(g * Math.PI) * h);
-            float bobRZ = Mth.sin(g * (float)Math.PI) * h * 3.0f;       // degrees
-            float bobRX = (float)Math.abs(Math.cos(g * Math.PI) * h) * 5.0f; // degrees
-
-            Matrix4f bobMat = new Matrix4f()
-                .translate(bobX, bobY, 0.0f)
-                .rotateZ((float)Math.toRadians(bobRZ))
-                .rotateX((float)Math.toRadians(bobRX));
-
-            invViewMat = new Matrix4f(bobMat).mul(invViewMat);
-
-            // Also counteract the bob translation's effect on the fog camera position.
-            // The bob shifts the scene by (bobX, bobY, 0) in view space; compensate
-            // by moving camPos by the equivalent world-space offset (using the rotation
-            // columns of the now-bob-free InvViewMat).
-            float wx = invViewMat.m00() * (-bobX) + invViewMat.m10() * (-bobY);
-            float wy = invViewMat.m01() * (-bobX) + invViewMat.m11() * (-bobY);
-            float wz = invViewMat.m02() * (-bobX) + invViewMat.m12() * (-bobY);
-            camPos = camPos.add(wx, wy, wz);
+            float walkDelta = mc.player.walkDist - mc.player.walkDistO;
+            float walkPhase = -(mc.player.walkDist + walkDelta * partialTick);
+            float bobAmp    = Mth.lerp(partialTick, mc.player.oBob, mc.player.bob);
+            float bobRZ = Mth.sin(walkPhase * (float) Math.PI) * bobAmp * 3.0f;
+            float bobRX = Math.abs(Mth.cos(walkPhase * (float) Math.PI - 0.2f) * bobAmp) * 5.0f;
+            Matrix4f bobRot = new Matrix4f()
+                    .rotateZ((float) Math.toRadians(bobRZ))
+                    .rotateX((float) Math.toRadians(bobRX));
+            invViewMat.mul(new Matrix4f(bobRot).invert());
         }
 
         setUniform("InvViewMat", invViewMat);
@@ -91,7 +86,6 @@ public class FlatFogRenderer {
         setUniform("FogAlpha",        FOG_ALPHA);
 
         var depthTarget = mc.getMainRenderTarget();
-        setUniform("DepthTexSize", (float) depthTarget.width, (float) depthTarget.height);
         fogShader.setSampler("DepthSampler", depthTarget.getDepthTextureId());
 
         RenderSystem.enableBlend();
@@ -117,11 +111,6 @@ public class FlatFogRenderer {
     private static void setUniform(String name, Matrix4f value) {
         var u = fogShader.getUniform(name);
         if (u != null) u.set(value);
-    }
-
-    private static void setUniform(String name, float a, float b) {
-        var u = fogShader.getUniform(name);
-        if (u != null) u.set(a, b);
     }
 
     private static void setUniform(String name, float a, float b, float c) {

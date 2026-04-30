@@ -13,8 +13,7 @@
         { "name": "DepthSampler" }
     ],
     "uniforms": [
-        { "name": "DepthTexSize",       "type": "float",     "count": 2,  "values": [1920.0, 1080.0] },
-        { "name": "InvProjMat",        "type": "matrix4x4", "count": 16, "values": [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1] },
+{ "name": "InvProjMatStable",  "type": "matrix4x4", "count": 16, "values": [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1] },
         { "name": "InvViewMat",        "type": "matrix4x4", "count": 16, "values": [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1] },
         { "name": "CamWorldPos",     "type": "float",     "count": 3,  "values": [0.0, 64.0, 0.0] },
         { "name": "GameTime",        "type": "float",     "count": 1,  "values": [0.0] },
