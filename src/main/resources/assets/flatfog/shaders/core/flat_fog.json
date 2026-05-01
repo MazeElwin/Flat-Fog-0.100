@@ -10,7 +10,8 @@
         "Position"
     ],
     "samplers": [
-        { "name": "DepthSampler" }
+        { "name": "DepthSampler" },
+        { "name": "DhDepthSampler" }
     ],
     "uniforms": [
 { "name": "InvProjMatStable",  "type": "matrix4x4", "count": 16, "values": [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1] },
@@ -22,7 +23,11 @@
         { "name": "FogDensity",      "type": "float",     "count": 1,  "values": [1.5] },
         { "name": "HeightVariation", "type": "float",     "count": 1,  "values": [5.0] },
         { "name": "HeightScale",     "type": "float",     "count": 1,  "values": [0.0005] },
-        { "name": "FogColorRGB",     "type": "float",     "count": 3,  "values": [0.82, 0.88, 0.96] },
-        { "name": "FogAlpha",        "type": "float",     "count": 1,  "values": [0.92] }
+        { "name": "MaxTraceDistance","type": "float",     "count": 1,  "values": [1024.0] },
+        { "name": "DepthFadeStart",  "type": "float",     "count": 1,  "values": [256.0] },
+        { "name": "DepthFadeEnd",    "type": "float",     "count": 1,  "values": [416.0] },
+        { "name": "HasDhDepth",      "type": "float",     "count": 1,  "values": [0.0] },
+        { "name": "FogColorRGB",     "type": "float",     "count": 3,  "values": [0.84, 0.88, 0.97] },
+        { "name": "FogAlpha",        "type": "float",     "count": 1,  "values": [0.76] }
     ]
 }
